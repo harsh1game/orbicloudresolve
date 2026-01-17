@@ -38,8 +38,8 @@ export const config = {
 };
 
 // Validate required config
-if (!config.database.url && (!config.supabase.url || !config.supabase.serviceKey)) {
-  throw new Error('Either DATABASE_URL or (SUPABASE_URL + SUPABASE_SERVICE_KEY) are required');
+if (!config.supabase.url || !config.supabase.serviceKey) {
+  throw new Error('SUPABASE_URL and SUPABASE_SERVICE_KEY are required');
 }
 
 // Validate admin API keys (optional but recommended)

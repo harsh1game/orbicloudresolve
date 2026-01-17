@@ -14,8 +14,6 @@ services:
         value: 1000
       - key: WORKER_BATCH_SIZE
         value: 10
-      - key: DATABASE_URL
-        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_KEY
