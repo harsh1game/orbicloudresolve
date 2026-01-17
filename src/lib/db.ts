@@ -1,7 +1,12 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { Pool, PoolClient, QueryResult } from 'pg';
 import { config } from '../config';
 
+// Supabase client for simple REST API queries
 let supabase: SupabaseClient;
+
+// PostgreSQL pool for transactions, locking, and complex queries
+let pool: Pool;
 
 export function getSupabaseClient(): SupabaseClient {
   if (!supabase) {
@@ -19,56 +24,43 @@ export function getSupabaseClient(): SupabaseClient {
   return supabase;
 }
 
-// Helper function for queries (compatible with old code structure)
-export const query = async <T extends any = any>(
-  table: string,
-  options?: any
-): Promise<T[]> => {
-  const client = getSupabaseClient();
-  const { data, error } = await client.from(table).select('*');
-  
-  if (error) throw error;
-  return data as T[];
+export function getPool(): Pool {
+  if (!pool) {
+    // Use DATABASE_URL if available (for transactional operations)
+    // Otherwise construct from Supabase URL
+    const dbUrl = config.database.url || 
+      `postgresql://postgres.yvzofljxfonsxnmwjbcy:${config.supabase.serviceKey.split('.')[2]}@aws-0-ap-south-1.pooler.supabase.com:6543/postgres`;
+    
+    pool = new Pool({
+      connectionString: dbUrl,
+      ssl: { rejectUnauthorized: false },
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+    });
+  }
+  return pool;
+}
+
+// Simple queries using Supabase (for API reads)
+export const query = async <T extends any = any>(text: string, params?: any[]): Promise<T[]> => {
+  // For simple SELECT queries, we could use Supabase
+  // But for compatibility, use PostgreSQL pool
+  const pool = getPool();
+  const res: QueryResult = await pool.query(text, params);
+  return res.rows as T[];
 };
 
-// For raw SQL queries (used by worker and complex queries)
-export const rpc = async <T extends any = any>(
-  functionName: string,
-  params?: any
-): Promise<T[]> => {
-  const client = getSupabaseClient();
-  const { data, error } = await client.rpc(functionName, params);
-  
-  if (error) throw error;
-  return data as T[];
+// Get client for transactions (worker, rate limiting)
+export const getClient = async (): Promise<PoolClient> => {
+  const pool = getPool();
+  return pool.connect();
 };
 
-// Cleanup (not really needed for Supabase client but keeping for compatibility)
+// Cleanup
 export const closePool = async (): Promise<void> => {
-  // Supabase client doesn't need explicit cleanup
+  if (pool) {
+    await pool.end();
+  }
 };
 
-// Backward compatibility shims for code not yet migrated
-export const getPool = () => {
-  // Return a mock pool-like object for compatibility
-  // Real implementation uses Supabase client above
-  return {
-    query: async (text: string, params?: any[]) => {
-      // For now, throw an error to identify code that needs migration
-      throw new Error('Direct pool.query() not supported with Supabase client. Use rpc() or Supabase methods.');
-    },
-    end: async () => {},
-  };
-};
-
-export const getClient = async () => {
-  // Return a mock client-like object for compatibility
-  // Real implementation uses Supabase client above
-  return {
-    query: async (text: string, params?: any[]) => {
-      // For now, throw an error to identify code that needs migration
-      throw new Error('Direct client.query() not supported with Supabase client. Use rpc() or Supabase methods.');
-    },
-    release: () => {},
-  };
-};
