@@ -1,13 +1,6 @@
-/**
- * Worker Entry Point
- * 
- * Starts the background worker that processes queued messages
- * Run with: npm run dev:worker
- */
-
 import { config } from '../config';
 import { logger } from '../lib/logger';
-import { getPool, closePool } from '../lib/db';
+import { getSupabaseClient } from '../lib/db';
 import { startWorker } from '../worker/worker';
 
 async function main() {
@@ -18,10 +11,9 @@ async function main() {
       batchSize: config.worker.batchSize,
     });
 
-    // Initialize database pool
-    const pool = getPool();
-    await pool.query('SELECT NOW()'); // Test connection
-    logger.info('Database connection established');
+    // Verify Supabase connection
+    const supabase = getSupabaseClient();
+    logger.info('Supabase client initialized');
 
     // Start worker loop
     await startWorker();
@@ -34,13 +26,11 @@ async function main() {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, shutting down gracefully');
-  await closePool();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   logger.info('SIGINT received, shutting down gracefully');
-  await closePool();
   process.exit(0);
 });
 

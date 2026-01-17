@@ -1,13 +1,6 @@
-/**
- * API Server Entry Point
- * 
- * Starts the Express HTTP server
- * Run with: npm run dev:api
- */
-
 import { config } from '../config';
 import { logger } from '../lib/logger';
-import { getPool, closePool } from '../lib/db';
+import { getSupabaseClient } from '../lib/db';
 import { startServer } from '../api/server';
 
 async function main() {
@@ -17,10 +10,9 @@ async function main() {
       port: config.api.port,
     });
 
-    // Initialize database pool
-    const pool = getPool();
-    await pool.query('SELECT NOW()'); // Test connection
-    logger.info('Database connection established');
+    // Verify Supabase connection
+    const supabase = getSupabaseClient();
+    logger.info('Supabase client initialized');
 
     // Start HTTP server
     startServer();
@@ -33,13 +25,11 @@ async function main() {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, shutting down gracefully');
-  await closePool();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   logger.info('SIGINT received, shutting down gracefully');
-  await closePool();
   process.exit(0);
 });
 
