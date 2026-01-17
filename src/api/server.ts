@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import { config } from '../config';
 import { logger } from '../lib/logger';
-import { query } from '../lib/db';
+import { getSupabaseClient, rpc } from '../lib/db';
 import { authMiddleware, AuthenticatedRequest } from './auth';
 import { checkMonthlyQuota, checkRateLimit } from './limits';
 // import adminRoutes from '../../admin/routes';
@@ -50,6 +50,7 @@ app.post('/v1/messages', authMiddleware, async (req: Request, res: Response) => 
   try {
     const { to, from, subject, body, idempotency_key } = req.body;
     const projectId = (req as AuthenticatedRequest).projectId;
+    const supabase = getSupabaseClient();
 
     // Basic validation
     if (!to || !from || !body) {
@@ -62,12 +63,21 @@ app.post('/v1/messages', authMiddleware, async (req: Request, res: Response) => 
     // TODO: Validate email format
 
     // Phase 3: Check project status (enforce suspension)
-    const projectStatusCheck = await query<{ status: string }>(
-      'SELECT status FROM projects WHERE id = $1',
-      [projectId]
-    );
+    const { data: projectData, error: projectError } = await supabase
+      .from('projects')
+      .select('status')
+      .eq('id', projectId)
+      .single();
 
-    if (projectStatusCheck.length > 0 && projectStatusCheck[0].status === 'suspended') {
+    if (projectError || !projectData) {
+      logger.error('Project lookup failed', { error: projectError?.message, projectId });
+      return res.status(500).json({
+        error: 'internal_error',
+        message: 'Internal server error',
+      });
+    }
+
+    if (projectData.status === 'suspended') {
       logger.warn('Message rejected: project suspended', { projectId });
       return res.status(403).json({
         error: 'project_suspended',
@@ -116,43 +126,58 @@ app.post('/v1/messages', authMiddleware, async (req: Request, res: Response) => 
 
     // Idempotency check: If idempotency_key provided, check for existing message
     if (idempotency_key) {
-      const existing = await query<{ id: string; status: string }>(
-        `SELECT id, status FROM messages 
-         WHERE project_id = $1 AND idempotency_key = $2`,
-        [projectId, idempotency_key]
-      );
+      const { data: existingMessages, error: idempError } = await supabase
+        .from('messages')
+        .select('id, status')
+        .eq('project_id', projectId)
+        .eq('idempotency_key', idempotency_key);
 
-      if (existing.length > 0) {
+      if (idempError) {
+        logger.error('Idempotency check failed', { error: idempError.message, projectId });
+        return res.status(500).json({
+          error: 'internal_error',
+          message: 'Internal server error',
+        });
+      }
+
+      if (existingMessages && existingMessages.length > 0) {
         logger.info('Duplicate idempotency_key detected, returning existing message', {
-          messageId: existing[0].id,
+          messageId: existingMessages[0].id,
           idempotencyKey: idempotency_key,
           projectId,
         });
 
         return res.status(200).json({
-          message_id: existing[0].id,
-          status: existing[0].status,
+          message_id: existingMessages[0].id,
+          status: existingMessages[0].status,
           duplicate: true,
         });
       }
     }
 
-    // Insert message with status=queued
-    const messageResult = await query<{ id: string }>(
-      `INSERT INTO messages (project_id, type, status, from_address, to_address, subject, body, idempotency_key)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id`,
-      [projectId, 'email', 'queued', from, to, subject || null, body, idempotency_key || null]
+    // Insert message with status=queued AND create "requested" event atomically
+    const result = await rpc<{ message_id: string; status: string; is_duplicate: boolean }>(
+      'create_message_with_event',
+      {
+        p_project_id: projectId,
+        p_type: 'email',
+        p_from: from,
+        p_to: to,
+        p_subject: subject || null,
+        p_body: body,
+        p_idempotency_key: idempotency_key || null
+      }
     );
 
-    const messageId = messageResult[0].id;
+    if (!result || result.length === 0) {
+      logger.error('Message creation failed - no result from RPC', { projectId });
+      return res.status(500).json({
+        error: 'internal_error',
+        message: 'Internal server error',
+      });
+    }
 
-    // Insert "requested" event
-    await query(
-      `INSERT INTO events (message_id, project_id, event_type)
-       VALUES ($1, $2, $3)`,
-      [messageId, projectId, 'requested']
-    );
+    const messageId = result[0].message_id;
 
     logger.info('Message queued', { messageId, projectId, to, from });
 

@@ -14,7 +14,7 @@ npm run dev
 **Terminal 2: Worker**
 ```bash
 # Starts the background worker (processes usage, retries, janitor)
-npm run worker
+render run worker
 ```
 
 ---
