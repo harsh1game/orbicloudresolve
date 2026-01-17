@@ -3,7 +3,7 @@ services:
     name: orbicloud-v2
     env: node
     plan: free
-    buildCommand: npm run build
+    buildCommand: npm install && npm run build
     startCommand: node dist/cmd/api.js
     envVars:
       - key: NODE_ENV
