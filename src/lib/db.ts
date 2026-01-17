@@ -47,3 +47,28 @@ export const rpc = async <T extends any = any>(
 export const closePool = async (): Promise<void> => {
   // Supabase client doesn't need explicit cleanup
 };
+
+// Backward compatibility shims for code not yet migrated
+export const getPool = () => {
+  // Return a mock pool-like object for compatibility
+  // Real implementation uses Supabase client above
+  return {
+    query: async (text: string, params?: any[]) => {
+      // For now, throw an error to identify code that needs migration
+      throw new Error('Direct pool.query() not supported with Supabase client. Use rpc() or Supabase methods.');
+    },
+    end: async () => {},
+  };
+};
+
+export const getClient = async () => {
+  // Return a mock client-like object for compatibility
+  // Real implementation uses Supabase client above
+  return {
+    query: async (text: string, params?: any[]) => {
+      // For now, throw an error to identify code that needs migration
+      throw new Error('Direct client.query() not supported with Supabase client. Use rpc() or Supabase methods.');
+    },
+    release: () => {},
+  };
+};
