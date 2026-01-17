@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: orbicloud-v2
+    env: node
+    plan: free
+    buildCommand: npm run build
+    startCommand: node dist/cmd/api.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_PORT
+        value: 10000
+      - key: WORKER_POLL_INTERVAL_MS
+        value: 1000
+      - key: WORKER_BATCH_SIZE
+        value: 10
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_API_KEY_READ
+        sync: false
+      - key: ADMIN_API_KEY_WRITE
+        sync: false
+    autoDeploy: true
