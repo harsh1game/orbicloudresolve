@@ -4,7 +4,13 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 export const config = {
-  // Database
+  // Supabase
+  supabase: {
+    url: process.env.SUPABASE_URL || '',
+    serviceKey: process.env.SUPABASE_SERVICE_KEY || '',
+  },
+
+  // Database (legacy, kept for migration reference)
   database: {
     url: process.env.DATABASE_URL || '',
   },
@@ -32,8 +38,8 @@ export const config = {
 };
 
 // Validate required config
-if (!config.database.url) {
-  throw new Error('DATABASE_URL is required');
+if (!config.supabase.url || !config.supabase.serviceKey) {
+  throw new Error('SUPABASE_URL and SUPABASE_SERVICE_KEY are required');
 }
 
 // Validate admin API keys (optional but recommended)

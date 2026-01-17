@@ -1,36 +1,49 @@
-import { Pool, PoolClient, QueryResult } from 'pg';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config } from '../config';
 
-let pool: Pool;
+let supabase: SupabaseClient;
 
-export function getPool(): Pool {
-  if (!pool) {
-    pool = new Pool({
-      connectionString: config.database.url,
-      // Supabase requires SSL for all connections (pooler or direct)
-      // rejectingUnauthorized: false to avoid CA issues in containers
-      ssl: { rejectUnauthorized: false },
-      max: 20, // Maximum pool size
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    });
+export function getSupabaseClient(): SupabaseClient {
+  if (!supabase) {
+    supabase = createClient(
+      config.supabase.url,
+      config.supabase.serviceKey,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    );
   }
-  return pool;
+  return supabase;
 }
 
-export const query = async <T extends any = any>(text: string, params?: any[]): Promise<T[]> => {
-  const pool = getPool();
-  const res: QueryResult = await pool.query(text, params);
-  return res.rows;
+// Helper function for queries (compatible with old code structure)
+export const query = async <T extends any = any>(
+  table: string,
+  options?: any
+): Promise<T[]> => {
+  const client = getSupabaseClient();
+  const { data, error } = await client.from(table).select('*');
+  
+  if (error) throw error;
+  return data as T[];
 };
 
-export const getClient = async (): Promise<PoolClient> => {
-  const pool = getPool();
-  return pool.connect();
+// For raw SQL queries (used by worker and complex queries)
+export const rpc = async <T extends any = any>(
+  functionName: string,
+  params?: any
+): Promise<T[]> => {
+  const client = getSupabaseClient();
+  const { data, error } = await client.rpc(functionName, params);
+  
+  if (error) throw error;
+  return data as T[];
 };
 
+// Cleanup (not really needed for Supabase client but keeping for compatibility)
 export const closePool = async (): Promise<void> => {
-  if (pool) {
-    await pool.end();
-  }
+  // Supabase client doesn't need explicit cleanup
 };
