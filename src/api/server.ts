@@ -1,18 +1,18 @@
 import express, { Request, Response } from 'express';
 import { config } from '../config';
-import { logger } from '../admin/lib/logger';
-import { query } from '../admin/lib/db';
+import { logger } from '../lib/logger';
+import { query } from '../lib/db';
 import { authMiddleware, AuthenticatedRequest } from './auth';
 import { checkMonthlyQuota, checkRateLimit } from './limits';
-import adminRoutes from '../../admin/routes';
+// import adminRoutes from '../../admin/routes';
 
 const app = express();
 
 // Middleware
 app.use(express.json({ limit: '100kb' })); // Phase 3: Limit JSON body size
 
-// Mount admin routes
-app.use('/v1/admin', adminRoutes);
+// Mount admin routes (Disabled for V2 refactor)
+// app.use('/v1/admin', adminRoutes);
 
 // Mount customer routes (Phase 4)
 import customerRoutes from './routes';

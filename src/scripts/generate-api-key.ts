@@ -7,9 +7,9 @@
  * Usage: npx ts-node src/scripts/generate-api-key.ts <project_id> <key_name>
  */
 
-import { query, closePool } from '../../admin/lib/db';
+import { query, closePool } from '../lib/db';
 import { generateApiKey } from '../api/auth';
-import { logger } from '../../admin/lib/logger';
+import { logger } from '../lib/logger';
 
 async function main() {
   const args = process.argv.slice(2);

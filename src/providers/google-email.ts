@@ -9,7 +9,7 @@
  */
 
 import { Provider, Message, ProviderResult } from './provider';
-import { logger } from '../admin/lib/logger';
+import { logger } from '../lib/logger';
 
 export class GoogleEmailProvider implements Provider {
   /**

@@ -7,7 +7,7 @@
  * RULE: No reuse of admin queries.
  */
 
-import { query } from '../admin/lib/db';
+import { query } from '../lib/db';
 
 /**
  * Get project details and limits for the authenticated project

@@ -11,8 +11,8 @@
 
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import { query } from '../admin/lib/db';
-import { logger } from '../admin/lib/logger';
+import { query } from '../lib/db';
+import { logger } from '../lib/logger';
 
 // Extend Express Request to include project context
 export interface AuthenticatedRequest extends Request {

@@ -1,6 +1,6 @@
 import { config } from '../config';
-import { logger } from '../admin/lib/logger';
-import { getClient } from '../admin/lib/db';
+import { logger } from '../lib/logger';
+import { getClient } from '../lib/db';
 import { PoolClient } from 'pg';
 import { getProvider } from '../providers/factory';
 import { Message } from '../providers/provider';

@@ -8,8 +8,8 @@
  * Safe under high concurrency
  */
 
-import { query, getClient } from '../admin/lib/db';
-import { logger } from '../admin/lib/logger';
+import { query, getClient } from '../lib/db';
+import { logger } from '../lib/logger';
 
 interface Project {
   monthly_limit: number | null;
