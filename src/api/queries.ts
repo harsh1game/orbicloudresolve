@@ -3,34 +3,41 @@
  * 
  * WHY: Isolation layer for customer-facing data access.
  * RULE: EVERY function MUST take projectId as the first argument.
- * RULE: EVERY query MUST look like "WHERE project_id = $1 ..."
+ * RULE: EVERY query MUST scope by project_id
  * RULE: No reuse of admin queries.
  */
 
-import { query } from '../lib/db';
+import { getSupabaseClient } from '../lib/db';
 
 /**
  * Get project details and limits for the authenticated project
  */
 export async function getProjectIdentity(projectId: string): Promise<any | null> {
+  const supabase = getSupabaseClient();
   const currentPeriod = new Date().toISOString().slice(0, 7); // YYYY-MM
 
-  const rows = await query(
-    `SELECT 
-      p.id,
-      p.name,
-      p.status,
-      p.monthly_limit,
-      p.rate_limit_per_minute,
-      p.created_at,
-      COALESCE(SUM(u.count), 0)::integer as current_usage
-    FROM projects p
-    LEFT JOIN usage u ON p.id = u.project_id AND u.period = $2
-    WHERE p.id = $1
-    GROUP BY p.id`
-    , [projectId, currentPeriod]);
+  // Get project
+  const { data: project, error: projectError } = await supabase
+    .from('projects')
+    .select('id, name, status, monthly_limit, rate_limit_per_minute, created_at')
+    .eq('id', projectId)
+    .single();
 
-  return rows.length > 0 ? rows[0] : null;
+  if (projectError || !project) return null;
+
+  // Get usage for current period
+  const { data: usageData } = await supabase
+    .from('usage')
+    .select('count')
+    .eq('project_id', projectId)
+    .eq('period', currentPeriod);
+
+  const currentUsage = usageData?.reduce((sum, u) => sum + (u.count || 0), 0) || 0;
+
+  return {
+    ...project,
+    current_usage: currentUsage
+  };
 }
 
 /**
@@ -45,30 +52,37 @@ export async function getCustomerMessages(
     to?: string;
   }
 ): Promise<any[]> {
-  const rows = await query(
-    `SELECT 
-      id,
-      status,
-      type,
-      to_address as to,
-      from_address as from,
-      subject,
-      created_at
-    FROM messages
-    WHERE project_id = $1
-      AND ($2::text IS NULL OR status = $2)
-      AND ($3::text IS NULL OR to_address ILIKE '%' || $3 || '%')
-    ORDER BY created_at DESC
-    LIMIT $4 OFFSET $5`,
-    [
-      projectId,
-      filters.status || null,
-      filters.to || null,
-      filters.limit,
-      filters.offset
-    ]
-  );
-  return rows;
+  const supabase = getSupabaseClient();
+  
+  let query = supabase
+    .from('messages')
+    .select('id, status, type, to_address, from_address, subject, created_at')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false })
+    .range(filters.offset, filters.offset + filters.limit - 1);
+
+  if (filters.status) {
+    query = query.eq('status', filters.status);
+  }
+
+  if (filters.to) {
+    query = query.ilike('to_address', `%${filters.to}%`);
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw error;
+
+  // Rename fields for API response
+  return (data || []).map(m => ({
+    id: m.id,
+    status: m.status,
+    type: m.type,
+    to: m.to_address,
+    from: m.from_address,
+    subject: m.subject,
+    created_at: m.created_at
+  }));
 }
 
 /**
@@ -81,102 +95,127 @@ export async function getCustomerMessageCount(
     to?: string;
   }
 ): Promise<number> {
-  const rows = await query<{ count: string }>(
-    `SELECT COUNT(*)::integer as count
-     FROM messages
-     WHERE project_id = $1
-       AND ($2::text IS NULL OR status = $2)
-       AND ($3::text IS NULL OR to_address ILIKE '%' || $3 || '%')`,
-    [
-      projectId,
-      filters.status || null,
-      filters.to || null
-    ]
-  );
+  const supabase = getSupabaseClient();
 
-  return parseInt(rows[0].count, 10);
+  let query = supabase
+    .from('messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('project_id', projectId);
+
+  if (filters.status) {
+    query = query.eq('status', filters.status);
+  }
+
+  if (filters.to) {
+    query = query.ilike('to_address', `%${filters.to}%`);
+  }
+
+  const { count, error } = await query;
+
+  if (error) throw error;
+
+  return count || 0;
 }
 
 /**
  * Get message details (Project Scoped)
  */
 export async function getCustomerMessage(projectId: string, messageId: string): Promise<any | null> {
-  const rows = await query(
-    `SELECT 
-      id,
-      project_id,
-      status,
-      type,
-      from_address as from,
-      to_address as to,
-      subject,
-      body,
-      created_at,
-      updated_at,
-      attempts
-    FROM messages
-    WHERE id = $1 AND project_id = $2`,
-    [messageId, projectId]
-  );
+  const supabase = getSupabaseClient();
 
-  return rows.length > 0 ? rows[0] : null;
+  const { data, error } = await supabase
+    .from('messages')
+    .select('id, project_id, status, type, from_address, to_address, subject, body, created_at, updated_at, attempts')
+    .eq('id', messageId)
+    .eq('project_id', projectId)
+    .single();
+
+  if (error || !data) return null;
+
+  return {
+    id: data.id,
+    project_id: data.project_id,
+    status: data.status,
+    type: data.type,
+    from: data.from_address,
+    to: data.to_address,
+    subject: data.subject,
+    body: data.body,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
+    attempts: data.attempts
+  };
 }
 
 /**
- * Get message events with JOIN (Strictly Scoped)
- * 
- * MUST join to messages table to enforce project_id
+ * Get message events with project scoping via message lookup
  */
 export async function getCustomerMessageEvents(projectId: string, messageId: string): Promise<any[]> {
-  const rows = await query(
-    `SELECT 
-      e.event_type as type,
-      e.created_at,
-      e.provider_response
-    FROM events e
-    JOIN messages m ON e.message_id = m.id
-    WHERE e.message_id = $1 
-      AND m.project_id = $2
-    ORDER BY e.created_at ASC`,
-    [messageId, projectId]
-  );
+  const supabase = getSupabaseClient();
 
-  return rows;
+  // First verify message belongs to project
+  const { data: message } = await supabase
+    .from('messages')
+    .select('id')
+    .eq('id', messageId)
+    .eq('project_id', projectId)
+    .single();
+
+  if (!message) return [];
+
+  // Get events
+  const { data: events, error } = await supabase
+    .from('events')
+    .select('event_type, created_at, provider_response')
+    .eq('message_id', messageId)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+
+  return (events || []).map(e => ({
+    type: e.event_type,
+    created_at: e.created_at,
+    provider_response: e.provider_response
+  }));
 }
 
 /**
  * Get usage analytics (Project Scoped)
  */
 export async function getCustomerUsage(projectId: string): Promise<any[]> {
+  const supabase = getSupabaseClient();
   const currentPeriod = new Date().toISOString().slice(0, 7);
 
-  const rows = await query(
-    `SELECT 
-      message_type,
-      count
-    FROM usage
-    WHERE project_id = $1 AND period = $2`,
-    [projectId, currentPeriod]
-  );
+  const { data, error } = await supabase
+    .from('usage')
+    .select('message_type, count')
+    .eq('project_id', projectId)
+    .eq('period', currentPeriod);
 
-  return rows;
+  if (error) throw error;
+
+  return data || [];
 }
 
 /**
  * Get usage history (Project Scoped)
  */
 export async function getCustomerUsageHistory(projectId: string, months: number = 12): Promise<any[]> {
-  const rows = await query(
-    `SELECT 
-      period,
-      message_type,
-      count
-    FROM usage
-    WHERE project_id = $1 
-      AND period >= TO_CHAR(NOW() - INTERVAL '1 month' * $2, 'YYYY-MM')
-    ORDER BY period ASC`,
-    [projectId, months]
-  );
+  const supabase = getSupabaseClient();
+  
+  // Calculate cutoff date
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - months);
+  const cutoffPeriod = cutoff.toISOString().slice(0, 7);
 
-  return rows;
+  const { data, error } = await supabase
+    .from('usage')
+    .select('period, message_type, count')
+    .eq('project_id', projectId)
+    .gte('period', cutoffPeriod)
+    .order('period', { ascending: true });
+
+  if (error) throw error;
+
+  return data || [];
 }
